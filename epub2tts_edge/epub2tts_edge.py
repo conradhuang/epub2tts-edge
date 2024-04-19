@@ -12,11 +12,14 @@ import ebooklib
 from ebooklib import epub
 import edge_tts
 from mutagen import mp4
-#import nltk
+# import nltk
 from nltk.tokenize import sent_tokenize
 from pydub import AudioSegment
 
 warnings.filterwarnings("ignore", module="ebooklib.epub")
+
+_CONCURRENT_THREADS = 20
+
 
 def chap2text_epub(chap):
     blacklist = [
@@ -51,12 +54,15 @@ def chap2text_epub(chap):
 
     return chapter_title_text, paragraphs
 
-def export(book, sourcefile):
+
+def export(book, sourcefile) -> str:
     book_contents = []
     for item in book.get_items():
         if item.get_type() == ebooklib.ITEM_DOCUMENT:
-            chapter_title, chapter_paragraphs = chap2text_epub(item.get_content())
-            book_contents.append({"title": chapter_title, "paragraphs": chapter_paragraphs})
+            chapter_title, chapter_paragraphs = chap2text_epub(
+                item.get_content())
+            book_contents.append(
+                {"title": chapter_title, "paragraphs": chapter_paragraphs})
     outfile = sourcefile.replace(".epub", ".txt")
     check_for_file(outfile)
     print(f"Exporting {sourcefile} to {outfile}")
@@ -76,6 +82,9 @@ def export(book, sourcefile):
                     file.write(f"# {chapter['title']}\n\n")
                 for paragraph in chapter["paragraphs"]:
                     file.write(f"{paragraph}\n\n")
+
+    return outfile
+
 
 def get_book(sourcefile):
     book_contents = []
@@ -108,9 +117,11 @@ def get_book(sourcefile):
 
     return book_contents, book_title, book_author, chapter_titles
 
+
 def sort_key(s):
     # extract number from the string
     return int(re.findall(r'\d+', s)[0])
+
 
 def check_for_file(filename):
     if os.path.isfile(filename):
@@ -122,6 +133,7 @@ def check_for_file(filename):
         else:
             os.remove(filename)
 
+
 def append_silence(tempfile, duration=1200):
     audio = AudioSegment.from_file(tempfile)
     # Create a silence segment
@@ -131,46 +143,7 @@ def append_silence(tempfile, duration=1200):
     # Save the combined audio back to file
     combined.export(tempfile, format="mp3")
 
-def read_book(book_contents, speaker):
-    segments = []
-    for i, chapter in enumerate(book_contents, start=1):
-        files = []
-        partname = f"part{i}.mp3"
-        if os.path.isfile(partname):
-            print(f"{partname} exists, skipping to next chapter")
-            segments.append(partname)
-        else:
-            print(f"Chapter: {chapter['title']}\n")
-            asyncio.run(parallel_edgespeak([chapter['title']], [speaker], ['paras0.mp3']))
-            append_silence('paras0.mp3', 1200)
-            for pindex, paragraph in enumerate(chapter["paragraphs"]):
-                sentences = sent_tokenize(paragraph)
-                filenames = ['paras'+str(z+1)+".mp3" for z in range(len(sentences))]
-                speakers = [speaker] * len(sentences)
-                asyncio.run(parallel_edgespeak(sentences, speakers, filenames))
-                append_silence(filenames[-1], 1200)
-                #combine sentences in paragraph
-                sorted_files = sorted(filenames, key=sort_key)
-                if os.path.exists("paras0.mp3"):
-                    sorted_files.insert(0, "paras0.mp3")
-                combined = AudioSegment.empty()
-                for file in sorted_files:
-                    combined += AudioSegment.from_mp3(file)
-                ptemp = f"pgraphs{pindex}.mp3"
-                combined.export(ptemp, format='mp3')
-                for file in sorted_files:
-                    os.remove(file)
-                files.append(ptemp)
-            #combine paragraphs into chapter
-            append_silence(files[-1], 2800)
-            combined = AudioSegment.empty()
-            for file in files:
-                combined += AudioSegment.from_mp3(file)
-            combined.export(partname, format="mp3")
-            for file in files:
-                os.remove(file)
-            segments.append(partname)
-    return segments
+
 
 def generate_metadata(files, author, title, chapter_titles):
     chap = 0
@@ -179,7 +152,8 @@ def generate_metadata(files, author, title, chapter_titles):
         file.write(";FFMETADATA1\n")
         file.write(f"ARTIST={author}\n")
         file.write(f"ALBUM={title}\n")
-        file.write("DESCRIPTION=Made with https://github.com/aedocw/epub2tts-edge\n")
+        file.write(
+            "DESCRIPTION=Made with https://github.com/aedocw/epub2tts-edge\n")
         for file_name in files:
             duration = get_duration(file_name)
             file.write("[CHAPTER]\n")
@@ -190,10 +164,12 @@ def generate_metadata(files, author, title, chapter_titles):
             chap += 1
             start_time += duration
 
+
 def get_duration(file_path):
     audio = AudioSegment.from_file(file_path)
     duration_milliseconds = len(audio)
     return duration_milliseconds
+
 
 def make_m4b(files, sourcefile, speaker):
     filelist = "filelist.txt"
@@ -218,6 +194,8 @@ def make_m4b(files, sourcefile, speaker):
         "69k",
         "-f",
         "ipod",
+        # "-filter:a",
+        # f"atempo={speak_rate}",
         outputm4a,
     ]
     subprocess.run(ffmpeg_command)
@@ -241,6 +219,7 @@ def make_m4b(files, sourcefile, speaker):
         os.remove(f)
     return outputm4b
 
+
 def add_cover(cover_img, filename):
     if os.path.isfile(cover_img):
         m4b = mp4.MP4(filename)
@@ -250,25 +229,93 @@ def add_cover(cover_img, filename):
     else:
         print(f"Cover image {cover_img} not found")
 
-def run_edgespeak(sentence, speaker, filename):
-    communicate = edge_tts.Communicate(sentence, speaker)
+
+def run_edgespeak(sentence, speaker, filena[Ime, speak_rate):
+    print(f"Running edge peak with filename {filename}")
+    communicate = edge_tts.Communicate(sentence, speaker, rate=speak_rate)
     run_save(communicate, filename)
 
+
 def run_save(communicate, filename):
+    print(f"Saving {filename}...")
     asyncio.run(communicate.save(filename))
 
-async def parallel_edgespeak(sentences, speakers, filenames):
-    semaphore = asyncio.Semaphore(10)  # Limit the number of concurrent tasks
+def read_book(book_contents, speaker, speak_rate="1.0"):
+    segments = []
+    for i, chapter in enumerate(book_contents, start=1):
+        partname = f"part{i}.mp3"
+        if os.path.isfile(partname):
+            print(f"{partname} exists, skipping to next chapter")
+            segments.append(partname)
+        else:
+            print(f"Chapter: {chapter['title']}\n")
+            chapter_files = asyncio.run(parallel_edgespeak(
+                [chapter['title']] + chapter["paragraphs"], [speaker] * (1 + len(chapter["paragraphs"])), speak_rate=speak_rate))
+            
+            # Combine chapter files
+            append_silence(chapter_files[-1], 2800)
+            combined = AudioSegment.empty()
+            for file in chapter_files:
+                combined += AudioSegment.from_mp3(file)
+            combined.export(partname, format="mp3")
+            for file in chapter_files:
+                os.remove(file)
+            
+            segments.append(partname)
+    return segments
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        tasks = []
-        for sentence, speaker, filename in zip(sentences, speakers, filenames):
+async def parallel_edgespeak(texts, speakers, speak_rate="1.0", batch_size=5):
+    semaphore = asyncio.Semaphore(_CONCURRENT_THREADS)
+    results = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_CONCURRENT_THREADS) as executor:
+        futures = []
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i+batch_size]
+            batch_speakers = speakers[i:i+batch_size]
+            batch_sentences = []
+            batch_filenames = []
+            for text, speaker in zip(batch_texts, batch_speakers):
+                sentences = sent_tokenize(text)
+                batch_sentences.extend(sentences)
+                batch_filenames.extend([f"temp_{j}.mp3" for j in range(len(batch_filenames), len(batch_filenames) + len(sentences))])
             async with semaphore:
                 loop = asyncio.get_running_loop()
-                task = loop.run_in_executor(executor, run_edgespeak, sentence, speaker, filename)
-                tasks.append(task)
+                future = loop.run_in_executor(
+                    executor, run_edgespeak_batch, batch_sentences, batch_speakers, batch_filenames, speak_rate)
+                futures.append(future)
 
-        await asyncio.gather(*tasks)
+        for future in futures:
+            batch_results = await future
+            results.extend(batch_results)
+
+    return results
+
+async def parallel_edgespeak(texts, speakers, speak_rate="1.0", batch_size=5):
+    semaphore = asyncio.Semaphore(_CONCURRENT_THREADS)
+    results = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_CONCURRENT_THREADS) as executor:
+        for text, speaker in zip(texts, speakers):
+            sentences = sent_tokenize(text)
+            filenames = [f"temp_{j}.mp3" for j in range(len(results), len(results) + len(sentences))]
+            async with semaphore:
+                loop = asyncio.get_running_loop()
+                future = loop.run_in_executor(
+                    executor, run_edgespeak_batch, sentences, [speaker] * len(sentences), filenames, speak_rate)
+                batch_results = await future
+                results.extend(batch_results)
+
+    return results
+
+def run_edgespeak_batch(sentences, speakers, filenames, speak_rate):
+    batch_results = []
+    for sentence, speaker, filename in zip(sentences, speakers, filenames):
+        communicate = edge_tts.Communicate(sentence, speaker, rate=speak_rate)
+        print(f"Saving {filename}...")
+        asyncio.run(communicate.save(filename))
+        batch_results.append(filename)
+    return batch_results
 
 
 def main():
@@ -276,7 +323,8 @@ def main():
         prog="epub2tts-edge",
         description="Read a text file to audiobook format",
     )
-    parser.add_argument("sourcefile", type=str, help="The epub or text file to process")
+    parser.add_argument("sourcefile", type=str,
+                        help="The epub or text file to process")
     parser.add_argument(
         "--speaker",
         type=str,
@@ -285,6 +333,8 @@ def main():
         default="en-US-AndrewNeural",
         help="Speaker to use (ex en-US-MichelleNeural)",
     )
+    parser.add_argument("--speak_rate", type=str, default="+0%",
+                        help="Speak rate to use. The default value is +0%")
     parser.add_argument(
         "--cover",
         type=str,
@@ -294,18 +344,21 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    #If we get an epub, export that to txt file, then exit
+    # If we get an epub, export that to txt file, then exit
+    sourcefile = args.sourcefile
     if args.sourcefile.endswith(".epub"):
         book = epub.read_epub(args.sourcefile)
-        export(book, args.sourcefile)
-        exit()
+        sourcefile = export(book, args.sourcefile)
 
-    book_contents, book_title, book_author, chapter_titles = get_book(args.sourcefile)
-    files = read_book(book_contents, args.speaker)
+    book_contents, book_title, book_author, chapter_titles = get_book(
+        sourcefile)
+    files = read_book(book_contents, args.speaker, args.speak_rate)
     generate_metadata(files, book_author, book_title, chapter_titles)
-    m4bfilename = make_m4b(files, args.sourcefile, args.speaker)
+    m4bfilename = make_m4b(files, args.sourcefile,
+                           args.speaker)
     add_cover(args.cover, m4bfilename)
 
 
 if __name__ == "__main__":
     main()
+
