@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import concurrent.futures
+import datetime
 import os
 import re
 import subprocess
@@ -230,7 +231,7 @@ def add_cover(cover_img, filename):
         print(f"Cover image {cover_img} not found")
 
 
-def run_edgespeak(sentence, speaker, filena[Ime, speak_rate):
+def run_edgespeak(sentence, speaker, filename, speak_rate):
     print(f"Running edge peak with filename {filename}")
     communicate = edge_tts.Communicate(sentence, speaker, rate=speak_rate)
     run_save(communicate, filename)
@@ -308,11 +309,23 @@ async def parallel_edgespeak(texts, speakers, speak_rate="1.0", batch_size=5):
 
     return results
 
+def get_current_time():
+  """Prints the current time in YYYY-MM-DD H:M:S format."""
+
+  now = datetime.datetime.now()
+  formatted_time = now.strftime("%Y-%m-%d %H:%M:%S")
+  return formatted_time
+
 def run_edgespeak_batch(sentences, speakers, filenames, speak_rate):
     batch_results = []
     for sentence, speaker, filename in zip(sentences, speakers, filenames):
-        communicate = edge_tts.Communicate(sentence, speaker, rate=speak_rate)
-        print(f"Saving {filename}...")
+        if os.path.isfile(filename):
+            print(f"File {filename} already exists, skipping...")
+            batch_results.append(filename)
+            continue
+        print(f"[{get_current_time()}] Communicating {filename}...")
+        communicate = edge_tts.Communicate(sentence, speaker, rate=speak_rate, receive_timeout=10)
+        print(f"[{get_current_time()}] Saving {filename}...")
         asyncio.run(communicate.save(filename))
         batch_results.append(filename)
     return batch_results
